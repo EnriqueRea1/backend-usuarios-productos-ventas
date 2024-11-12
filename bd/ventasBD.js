@@ -45,21 +45,75 @@ async function mostrarVentas() {
 
 async function buscarVentaPorID(id) {
     const venta = await ventasBD.doc(id).get();
-    return venta.exists ? new Venta({ id: venta.id, ...venta.data() }).getVenta : null;
+    
+    if (venta.exists) {
+        const ventaData = venta.data();
+        
+        // Obtener los nombres del usuario y producto
+        const usuarioRef = usuariosBD.doc(ventaData.idUsuario);
+        const productoRef = productosBD.doc(ventaData.idProducto);
+        
+        // Obtener los datos del usuario y del producto
+        const usuarioDoc = await usuarioRef.get();
+        const productoDoc = await productoRef.get();
+        
+        // Agregar los nombres al objeto de la venta
+        if (usuarioDoc.exists) {
+            ventaData.nombreUsuario = usuarioDoc.data().nombre;
+        } else {
+            ventaData.nombreUsuario = null; // O lo que consideres si no se encuentra el usuario
+        }
+
+        if (productoDoc.exists) {
+            ventaData.nombreProducto = productoDoc.data().producto;
+        } else {
+            ventaData.nombreProducto = null; // O lo que consideres si no se encuentra el producto
+        }
+
+        // Crear el objeto de la venta con los nombres
+        return new Venta({ id: venta.id, ...ventaData }).getVenta;
+    } else {
+        return null;
+    }
 }
 
-async function nuevaVenta(data) {
-    const { idUsuario, idProducto, cantidad } = data; // Solo necesitamos estos tres campos
-    let ventaValida = false;
 
-    // Validar que el usuario y el producto existen
-    if (await validarRelacion(idUsuario, idProducto)) {
-        const nuevaVenta = new Venta({ idUsuario, idProducto, cantidad });
-        await ventasBD.doc().set(nuevaVenta.getVenta);  // Crear la nueva venta con los valores predeterminados
-        ventaValida = true;
+async function nuevaVenta(data) {
+    const { nombreUsuario, nombreProducto, cantidad } = data;
+
+    // Obtener el ID del usuario a partir del nombre
+    const usuario = await usuariosBD.where("nombre", "==", nombreUsuario).get();
+    let idUsuario = null;
+    if (!usuario.empty) {
+        idUsuario = usuario.docs[0].id;  // Obtener el ID del primer usuario encontrado
+        console.log(`ID de Usuario obtenido: ${idUsuario}`);
+    } else {
+        console.log(`No se encontró usuario con nombre: ${nombreUsuario}`);
+        return false;
     }
-    
-    return ventaValida;
+
+    // Obtener el ID del producto a partir del nombre
+    const producto = await productosBD.where("producto", "==", nombreProducto).get();
+    let idProducto = null;
+    if (!producto.empty) {
+        idProducto = producto.docs[0].id;  // Obtener el ID del primer producto encontrado
+        console.log(`ID de Producto obtenido: ${idProducto}`);
+    } else {
+        console.log(`No se encontró producto con nombre: ${nombreProducto}`);
+        return false;
+    }
+
+    // Validar que los IDs existen y crear la venta
+    if (idUsuario && idProducto && await validarRelacion(idUsuario, idProducto)) {
+        const nuevaVenta = new Venta({ idUsuario, idProducto, cantidad });
+        console.log("Datos de la venta antes de guardarla:", nuevaVenta.getVenta); // Muestra los datos de la venta
+        await ventasBD.doc().set(nuevaVenta.getVenta);
+        console.log("Venta creada exitosamente.");
+        return true;
+    } else {
+        console.log("No se pudo crear la venta. Verifica que el usuario y el producto existan.");
+        return false;
+    }
 }
 
 async function actualizarEstatusVenta(id) {
@@ -81,9 +135,82 @@ async function actualizarEstatusVenta(id) {
     return { success: false, message: "Venta no encontrada." };
 }
 
+async function editarVenta(id, data) {
+    const { nombreUsuario, nombreProducto, cantidad } = data;
+
+    //verificar si la venta existe
+    const ventaExistente = await ventasBD.doc(id).get();
+    if (!ventaExistente.exists) {
+        console.log(`No se encontró la venta con ID: ${id}`);
+        return { success: false, message: "Venta no encontrada" };
+    }
+
+    // Verificar si la venta está cancelada
+    const ventaData = ventaExistente.data();
+    if (ventaData.estatus === "Cancelado") {
+        console.log("No se puede editar una venta cancelada");
+        return { success: false, message: "No se puede editar una venta cancelada" };
+    }
+
+    // Obtener el ID del usuario a partir del nombre
+    let idUsuario = null;
+    if (nombreUsuario) {
+        const usuario = await usuariosBD.where("nombre", "==", nombreUsuario).get();
+        if (!usuario.empty) {
+            idUsuario = usuario.docs[0].id;
+            console.log(`ID de Usuario obtenido: ${idUsuario}`);
+        } else {
+            console.log(`No se encontró usuario con nombre: ${nombreUsuario}`);
+            return { success: false, message: "Usuario no encontrado" };
+        }
+    }
+
+    // Obtener el ID del producto a partir del nombre
+    let idProducto = null;
+    if (nombreProducto) {
+        const producto = await productosBD.where("producto", "==", nombreProducto).get();
+        if (!producto.empty) {
+            idProducto = producto.docs[0].id;
+            console.log(`ID de Producto obtenido: ${idProducto}`);
+        } else {
+            console.log(`No se encontró producto con nombre: ${nombreProducto}`);
+            return { success: false, message: "Producto no encontrado" };
+        }
+    }
+
+    const actualizaciones = {};
+    if (idUsuario) {
+        actualizaciones.idUsuario = idUsuario;
+    }
+    
+    if (idProducto) {
+        actualizaciones.idProducto = idProducto;
+    }
+    
+    if (cantidad) {
+        actualizaciones.cantidad = cantidad;
+    }
+
+    // Si no hay nada que actualizar, retornar
+    if (Object.keys(actualizaciones).length === 0) {
+        return { success: false, message: "No se proporcionaron datos para actualizar" };
+    }
+
+    try {
+        await ventasBD.doc(id).update(actualizaciones);
+        console.log("Venta actualizada exitosamente");
+        return { success: true, message: "Venta actualizada exitosamente" };
+    } catch (error) {
+        console.error("Error al actualizar la venta:", error);
+        return { success: false, message: "Error al actualizar la venta" };
+    }
+}
+
+
 module.exports = {
     mostrarVentas,
     buscarVentaPorID,
     nuevaVenta,
-    actualizarEstatusVenta
+    actualizarEstatusVenta,
+    editarVenta
 };

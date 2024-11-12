@@ -1,60 +1,85 @@
 const Usuario = require("../modelos/UsuarioModelo");
 const usuariosBD = require("./conexion").usuarios;
-const {encriptarPassword, validarPassword, usuarioAutorizado, adminAutorizado}=require("../middleware/funcionesPassword");
+const { encriptarPassword, validarPassword, usuarioAutorizado, adminAutorizado } = require("../middleware/funcionesPassword");
 
-function validarDatos(usuario){
-        var valido=false;
-    if(usuario.nombre!=undefined && usuario.usuario!=undefined && usuario.password!=undefined){
-        valido=true;
+function validarDatos(usuario) {
+    var valido = false;
+    if (usuario.nombre != undefined && usuario.usuario != undefined && usuario.password != undefined) {
+        valido = true;
     }
     return valido;
 }
 
-async function mostrarUsuarios(){
-    const usuarios = await usuariosBD.get();  
-    usuariosValidos=[];
-    usuarios.forEach(usuario =>{
-        const usuario1 = new Usuario({id:usuario.id, ... usuario.data()});
-        console.log(usuario1.getUsuario);
-        
-        if(validarDatos(usuario1.getUsuario)){
+async function login(req, usuario, password) {
+    //console.log(usuario, password);
+    var user = {
+        usuario: "anónimo",
+        tipoUsuario: "Sin Acceso"
+    }
+    const usuariosCorrecto = await usuariosBD.where("usuario", "==", usuario).get();
+    usuariosCorrecto.forEach(usu => {
+
+        const usuarioCorrecto = validarPassword(password, usu.data().password, usu.data().salt);
+        if (usuarioCorrecto) {
+            user.usuario = usu.data().usuario;
+            if (usu.data().tipoUsuario == "usuario") {
+                req.session.usuario = "usuario";
+                user.tipoUsuario = req.session.usuario;
+            }
+            else if (usu.data().tipoUsuario == "admin") {
+                req.session.admin = "admin";
+                user.tipoUsuario = req.session.admin;
+            }
+        }
+    });
+    return user;
+}
+
+async function mostrarUsuarios() {
+    const usuarios = await usuariosBD.get();
+    usuariosValidos = [];
+    usuarios.forEach(usuario => {
+        const usuario1 = new Usuario({ id: usuario.id, ...usuario.data() });
+
+
+        if (validarDatos(usuario1.getUsuario)) {
             usuariosValidos.push(usuario1.getUsuario);
         }
-    }); 
+    });
     //console.log(usuariosValidos);
-    
+
     return usuariosValidos;
-    
+
 }
 
 async function buscarUsuarioPorID(id) {
     const usuario = await usuariosBD.doc(id).get();
-    const usuario1=new Usuario({id:usuario.id,...usuario.data()});
-    var usuarioValido=false;
-    if(validarDatos(usuario1.getUsuario)){
-        usuarioValido=usuario1.getUsuario;
+    const usuario1 = new Usuario({ id: usuario.id, ...usuario.data() });
+    var usuarioValido = false;
+    if (validarDatos(usuario1.getUsuario)) {
+        usuarioValido = usuario1.getUsuario;
     }
     return usuarioValido;
 }
 
 async function nuevoUsuario(data) {
-    const {salt,hash}=encriptarPassword(data.password);
-    data.password=hash;
-    data.salt=salt;
-    data.tipoUsuario="usuario";
-    const usuario1=new Usuario(data);
-    var usuarioValido=false;
-    if(validarDatos(usuario1.getUsuario)){
+    const { salt, hash } = encriptarPassword(data.password);
+    data.password = hash;
+    data.salt = salt;
+    data.tipoUsuario = "usuario";
+    const usuario1 = new Usuario(data);
+    var usuarioValido = false;
+    if (validarDatos(usuario1.getUsuario)) {
         await usuariosBD.doc().set(usuario1.getUsuario);
-        usuarioValido=true;
+        usuarioValido = true;
     }
     return usuarioValido;
 }
 
 async function borrarUsuario(id) {
     var usuarioValido = await buscarUsuarioPorID(id);
-    var usuarioBorrado=false;
-    if(usuarioValido){
+    var usuarioBorrado = false;
+    if (usuarioValido) {
         await usuariosBD.doc(id).delete();
         usuarioBorrado = true;
     }
@@ -63,10 +88,10 @@ async function borrarUsuario(id) {
 
 async function actualizarUsuario(id, nombre, usuario, password) {
     const usuarios = await buscarUsuarioPorID(id);
-    
+
     if (usuarios) {
         // Actualizamos solo el estatus
-        await usuariosBD.doc(id).update({ nombre: nombre, usuario:usuario, password:password });
+        await usuariosBD.doc(id).update({ nombre: nombre, usuario: usuario, password: password });
         return true;
     }
     return false;
@@ -74,12 +99,13 @@ async function actualizarUsuario(id, nombre, usuario, password) {
 
 
 
-module.exports={
+module.exports = {
     mostrarUsuarios,
     nuevoUsuario,
     borrarUsuario,
     buscarUsuarioPorID,
-    actualizarUsuario
+    actualizarUsuario,
+    login
 }
 
 //revisar cuando si existe el usuario pero el usuario es incorrecto
